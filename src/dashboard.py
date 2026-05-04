@@ -1,7 +1,7 @@
 """
 PCOS Digital Twin — Streamlit Dashboard
 ========================================
-Run with:  streamlit run dashboard.py
+Run with:  streamlit run src/dashboard.py
 """
 
 import os
@@ -26,101 +26,59 @@ st.set_page_config(
 )
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR   = os.path.normpath(os.path.join(SCRIPT_DIR, ".."))
+# Always resolve relative to THIS file's location — works regardless of
+# where streamlit is launched from.
+_SRC      = os.path.dirname(os.path.abspath(__file__))   # .../pcos_digital_twin/src
+_ROOT     = os.path.normpath(os.path.join(_SRC, ".."))   # .../pcos_digital_twin
 
-def _resolve(rel):
-    p = os.path.normpath(os.path.join(SCRIPT_DIR, rel))
-    if os.path.exists(p): return p
-    return os.path.normpath(os.path.join(BASE_DIR, rel.lstrip("../")))
-
-STATE_MODEL_PATH = _resolve("../models/state_estimator.pkl")
-RISK_MODEL_PATH  = _resolve("../models/risk_predictor.pkl")
-DATA_PATH        = _resolve("../data/processed/pcos_processed.csv")
+STATE_MODEL_PATH = os.path.join(_ROOT, "models", "state_estimator.pkl")
+RISK_MODEL_PATH  = os.path.join(_ROOT, "models", "risk_predictor.pkl")
+SCALER_PATH      = os.path.join(_ROOT, "models", "scaler.pkl")
+DATA_PATH        = os.path.join(_ROOT, "data", "processed", "pcos_processed.csv")
 
 # ── Custom CSS ─────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Main background */
     .stApp { background-color: #0f1117; color: #e0e0e0; }
-
-    /* Sidebar */
     [data-testid="stSidebar"] { background-color: #1a1d27; }
     [data-testid="stSidebar"] * { color: #c8cdd8 !important; }
-
-    /* Metric cards */
     [data-testid="metric-container"] {
-        background: #1a1d27;
-        border: 1px solid #2d3142;
-        border-radius: 10px;
-        padding: 16px;
+        background: #1a1d27; border: 1px solid #2d3142;
+        border-radius: 10px; padding: 16px;
     }
     [data-testid="stMetricValue"] { font-size: 2rem !important; font-weight: 700; }
-
-    /* Section headers */
     .section-header {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #a78bfa;
-        border-bottom: 1px solid #2d3142;
-        padding-bottom: 6px;
-        margin: 18px 0 12px;
+        font-size: 1.1rem; font-weight: 600; color: #a78bfa;
+        border-bottom: 1px solid #2d3142; padding-bottom: 6px; margin: 18px 0 12px;
     }
-
-    /* Risk gauge card */
     .risk-card {
-        background: #1a1d27;
-        border: 1px solid #2d3142;
-        border-radius: 10px;
-        padding: 16px 12px;
-        text-align: center;
-        margin-bottom: 8px;
+        background: #1a1d27; border: 1px solid #2d3142;
+        border-radius: 10px; padding: 16px 12px;
+        text-align: center; margin-bottom: 8px;
     }
     .risk-label  { font-size: 0.78rem; color: #888; margin-bottom: 4px; }
     .risk-value  { font-size: 1.8rem; font-weight: 700; }
     .risk-bar-bg { background: #2d3142; border-radius: 4px; height: 6px; margin-top: 8px; }
     .risk-bar-fg { border-radius: 4px; height: 6px; }
-
-    /* Scenario table */
     .scenario-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 6px 0;
-        border-bottom: 1px solid #2d3142;
-        font-size: 0.88rem;
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 6px 0; border-bottom: 1px solid #2d3142; font-size: 0.88rem;
     }
     .delta-good { color: #2ecc71; font-weight: 600; }
     .delta-bad  { color: #e74c3c; font-weight: 600; }
-
-    /* Tab styling */
     .stTabs [data-baseweb="tab-list"] { background: #1a1d27; border-radius: 8px; }
     .stTabs [data-baseweb="tab"]      { color: #888; }
     .stTabs [aria-selected="true"]    { color: #a78bfa !important; }
-
-    /* Slider */
     .stSlider > div > div > div { background: #a78bfa; }
-
-    /* Buttons */
     .stButton > button {
-        background: #7c3aed;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        font-weight: 600;
-        width: 100%;
+        background: #7c3aed; color: white; border: none;
+        border-radius: 8px; font-weight: 600; width: 100%;
     }
     .stButton > button:hover { background: #6d28d9; }
-
-    /* Info boxes */
     .info-box {
-        background: #1e2235;
-        border-left: 3px solid #a78bfa;
-        border-radius: 0 8px 8px 0;
-        padding: 10px 14px;
-        font-size: 0.85rem;
-        color: #c8cdd8;
-        margin: 8px 0;
+        background: #1e2235; border-left: 3px solid #a78bfa;
+        border-radius: 0 8px 8px 0; padding: 10px 14px;
+        font-size: 0.85rem; color: #c8cdd8; margin: 8px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -132,30 +90,49 @@ st.markdown("""
 
 @st.cache_resource
 def load_models():
-    missing = [p for p in [STATE_MODEL_PATH, RISK_MODEL_PATH] if not os.path.exists(p)]
+    missing = [p for p in [STATE_MODEL_PATH, RISK_MODEL_PATH, SCALER_PATH]
+               if not os.path.exists(p)]
     if missing:
-        return None, None, f"Model files not found: {missing}"
+        return None, None, None, f"Model files not found: {missing}"
     try:
         state_model = joblib.load(STATE_MODEL_PATH)
         risk_models = joblib.load(RISK_MODEL_PATH)
-        return state_model, risk_models, None
+        scaler      = joblib.load(SCALER_PATH)
+        return state_model, risk_models, scaler, None
     except Exception as e:
-        return None, None, str(e)
+        return None, None, None, str(e)
+
 
 @st.cache_data
 def load_feature_cols():
     if not os.path.exists(DATA_PATH):
         return []
     df = pd.read_csv(DATA_PATH)
-    return df.drop(columns=["PCOS (Y/N)"], errors="ignore") \
-             .select_dtypes(include=[np.number]).columns.tolist()
+    return (df.drop(columns=["PCOS (Y/N)"], errors="ignore")
+              .select_dtypes(include=[np.number])
+              .columns.tolist())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCALING HELPER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def scale_patient(patient: dict, scaler, feature_cols: list) -> dict:
+    """Scale raw patient values using the fitted StandardScaler."""
+    df = pd.DataFrame([patient])
+    df = df.reindex(columns=feature_cols, fill_value=0).fillna(0)
+    scaled = scaler.transform(df)
+    return dict(zip(feature_cols, scaled[0]))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CORE LOGIC
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_risk_scores(risk_models, patient, feature_cols):
+def get_risk_scores(risk_models, patient: dict, feature_cols: list, scaler=None) -> dict:
+    """Return risk probability (%) for each risk category."""
+    if scaler is not None:
+        patient = scale_patient(patient, scaler, feature_cols)
     scores = {}
     for name, info in risk_models.items():
         df_in = pd.DataFrame([patient]).reindex(columns=feature_cols, fill_value=0).fillna(0)
@@ -165,36 +142,39 @@ def get_risk_scores(risk_models, patient, feature_cols):
 
 
 SCENARIOS = {
-    "Weight loss (5 kg)":      {"BMI": -2.0, "Weight (Kg)": -5.0, "RBS(mg/dl)": -10.0},
-    "Regular exercise":        {"Reg.Exercise(Y/N)": 1, "BP _Systolic (mmHg)": -8.0,
-                                "RBS(mg/dl)": -15.0, "Cycle(R/I)": 1},
-    "Dietary changes":         {"Fast food (Y/N)": 0, "RBS(mg/dl)": -12.0,
-                                "BMI": -1.0, "Weight (Kg)": -2.0},
-    "Metformin":               {"RBS(mg/dl)": -20.0, "Cycle(R/I)": 1,
-                                "Cycle length(days)": 30, "BMI": -1.5},
-    "Combined lifestyle":      {"BMI": -3.5, "Weight (Kg)": -8.0, "RBS(mg/dl)": -25.0,
-                                "BP _Systolic (mmHg)": -10.0, "Cycle(R/I)": 1,
-                                "Fast food (Y/N)": 0, "Reg.Exercise(Y/N)": 1,
-                                "Symptom_burden": -2.0},
+    "Weight loss (5 kg)":  {"BMI": -2.0, "Weight (Kg)": -5.0, "RBS(mg/dl)": -10.0},
+    "Regular exercise":    {"Reg.Exercise(Y/N)": 1, "BP _Systolic (mmHg)": -8.0,
+                            "RBS(mg/dl)": -15.0, "Cycle(R/I)": 1},
+    "Dietary changes":     {"Fast food (Y/N)": 0, "RBS(mg/dl)": -12.0,
+                            "BMI": -1.0, "Weight (Kg)": -2.0},
+    "Metformin":           {"RBS(mg/dl)": -20.0, "Cycle(R/I)": 1,
+                            "Cycle length(days)": 30, "BMI": -1.5},
+    "Combined lifestyle":  {"BMI": -3.5, "Weight (Kg)": -8.0, "RBS(mg/dl)": -25.0,
+                            "BP _Systolic (mmHg)": -10.0, "Cycle(R/I)": 1,
+                            "Fast food (Y/N)": 0, "Reg.Exercise(Y/N)": 1,
+                            "Symptom_burden": -2.0},
 }
 
 FLOORS = {"BMI": 18.5, "Weight (Kg)": 45, "RBS(mg/dl)": 70,
           "BP _Systolic (mmHg)": 90, "Symptom_burden": 0}
 
-def apply_scenario(patient, scenario_name):
+
+def apply_scenario(patient: dict, scenario_name: str) -> dict:
     p = deepcopy(patient)
     for field, delta in SCENARIOS[scenario_name].items():
         if isinstance(delta, float) and delta < 0:
             floor = FLOORS.get(field, -9999)
             p[field] = max(floor, p.get(field, 0) + delta)
         else:
-            p[field] = delta if not isinstance(delta, float) else max(FLOORS.get(field, -9999), p.get(field, 0) + delta)
+            p[field] = (delta if not isinstance(delta, float)
+                        else max(FLOORS.get(field, -9999), p.get(field, 0) + delta))
     b = p.get("BMI", 25)
     p["BMI_category"] = 1 if b < 25 else (2 if b < 30 else 3)
     return p
 
 
-def estimate_trajectory(state_model, patient, feature_cols, months=12):
+def estimate_trajectory(state_model, patient: dict, feature_cols: list,
+                         scaler=None, months: int = 12):
     scores = []
     bmi0 = patient.get("BMI", 25)
     rbs0 = patient.get("RBS(mg/dl)", 100)
@@ -204,6 +184,8 @@ def estimate_trajectory(state_model, patient, feature_cols, months=12):
         sp["RBS(mg/dl)"] = max(70,   rbs0 - 1.2  * m)
         b = sp["BMI"]
         sp["BMI_category"] = 1 if b < 25 else (2 if b < 30 else 3)
+        if scaler is not None:
+            sp = scale_patient(sp, scaler, feature_cols)
         df_in = pd.DataFrame([sp]).reindex(columns=feature_cols, fill_value=0).fillna(0)
         try:
             if hasattr(state_model, "predict_proba"):
@@ -247,13 +229,13 @@ def make_risk_chart(all_results):
 
     for i, (sc, scores) in enumerate(all_results.items()):
         vals   = [scores[r] for r in risks]
-        offset = (i - (len(scenarios)-1)/2) * width
+        offset = (i - (len(scenarios) - 1) / 2) * width
         bars   = ax.bar(x + offset, vals, width, label=sc,
                         color=palette[i % len(palette)], alpha=0.88,
                         edgecolor="#0f1117", linewidth=0.4)
         for bar, v in zip(bars, vals):
             if v > 6:
-                ax.text(bar.get_x() + bar.get_width()/2,
+                ax.text(bar.get_x() + bar.get_width() / 2,
                         bar.get_height() + 0.8, f"{v:.0f}",
                         ha="center", va="bottom", fontsize=6.5,
                         color="white", alpha=0.75)
@@ -292,11 +274,11 @@ def make_trajectory_chart(months, scores):
     delta = scores[-1] - scores[0]
     sign  = f"+{delta:.1f}" if delta > 0 else f"{delta:.1f}"
     ax.annotate(f"M0: {scores[0]:.0f}%",
-                xy=(0, scores[0]), xytext=(0.5, scores[0]+6),
+                xy=(0, scores[0]), xytext=(0.5, scores[0] + 6),
                 color="white", fontsize=8,
                 arrowprops=dict(arrowstyle="->", color="white", lw=0.8))
     ax.annotate(f"M12: {scores[-1]:.0f}% ({sign})",
-                xy=(12, scores[-1]), xytext=(9, scores[-1]+6),
+                xy=(12, scores[-1]), xytext=(9, scores[-1] + 6),
                 color="#2ecc71", fontsize=8,
                 arrowprops=dict(arrowstyle="->", color="#2ecc71", lw=0.8))
 
@@ -327,7 +309,7 @@ def sidebar_inputs():
         weight = st.slider("Weight (kg)", 40, 120, 68)
         height = st.slider("Height (cm)", 140, 185, 162)
         bmi    = round(weight / (height / 100) ** 2, 1)
-        st.info(f"BMI: **{bmi}** ({'Underweight' if bmi<18.5 else 'Normal' if bmi<25 else 'Overweight' if bmi<30 else 'Obese'})")
+        st.info(f"BMI: **{bmi}** ({'Underweight' if bmi < 18.5 else 'Normal' if bmi < 25 else 'Overweight' if bmi < 30 else 'Obese'})")
 
     with st.sidebar.expander("🔬 Clinical Markers", expanded=True):
         cycle     = st.selectbox("Menstrual cycle", ["Irregular", "Regular"])
@@ -338,8 +320,8 @@ def sidebar_inputs():
         bp_dia    = st.slider("BP Diastolic (mmHg)", 50, 110, 80)
 
     with st.sidebar.expander("🫁 Follicle & Hormones", expanded=False):
-        foll_l = st.slider("Follicles — left ovary", 0, 30, 13)
-        foll_r = st.slider("Follicles — right ovary", 0, 30, 14)
+        foll_l    = st.slider("Follicles — left ovary", 0, 30, 13)
+        foll_r    = st.slider("Follicles — right ovary", 0, 30, 14)
         foll_sz_l = st.slider("Avg follicle size L (mm)", 5, 30, 15)
         foll_sz_r = st.slider("Avg follicle size R (mm)", 5, 30, 15)
 
@@ -351,27 +333,27 @@ def sidebar_inputs():
         hip       = st.slider("Hip (inches)", 28, 60, 38)
 
     patient = {
-        "Age (yrs)":               age,
-        "Weight (Kg)":             weight,
-        "Height(Cm) ":             height,
-        "BMI":                     bmi,
-        "Cycle(R/I)":              2 if cycle == "Irregular" else 1,
-        "Cycle length(days)":      cycle_len,
-        "AMH(ng/mL)":              amh,
-        "RBS(mg/dl)":              rbs,
-        "BP _Systolic (mmHg)":     bp_sys,
-        "BP _Diastolic (mmHg)":    bp_dia,
-        "Follicle No. (L)":        foll_l,
-        "Follicle No. (R)":        foll_r,
-        "Avg. F size (L) (mm)":    foll_sz_l,
-        "Avg. F size (R) (mm)":    foll_sz_r,
-        "Reg.Exercise(Y/N)":       1 if exercise == "Yes" else 0,
-        "Fast food (Y/N)":         1 if fast_food == "Yes" else 0,
-        "Symptom_burden":          symptom,
-        "Waist(inch)":             waist,
-        "Hip(inch)":               hip,
-        "Waist:Hip Ratio":         round(waist / hip, 3),
-        "BMI_category":            1 if bmi < 25 else (2 if bmi < 30 else 3),
+        "Age (yrs)":            age,
+        "Weight (Kg)":          weight,
+        "Height(Cm) ":          height,          # trailing space matches dataset column
+        "BMI":                  bmi,
+        "Cycle(R/I)":           2 if cycle == "Irregular" else 1,
+        "Cycle length(days)":   cycle_len,
+        "AMH(ng/mL)":           amh,
+        "RBS(mg/dl)":           rbs,
+        "BP _Systolic (mmHg)":  bp_sys,
+        "BP _Diastolic (mmHg)": bp_dia,
+        "Follicle No. (L)":     foll_l,
+        "Follicle No. (R)":     foll_r,
+        "Avg. F size (L) (mm)": foll_sz_l,
+        "Avg. F size (R) (mm)": foll_sz_r,
+        "Reg.Exercise(Y/N)":    1 if exercise == "Yes" else 0,
+        "Fast food (Y/N)":      1 if fast_food == "Yes" else 0,
+        "Symptom_burden":       symptom,
+        "Waist(inch)":          waist,
+        "Hip(inch)":            hip,
+        "Waist:Hip Ratio":      round(waist / hip, 3),
+        "BMI_category":         1 if bmi < 25 else (2 if bmi < 30 else 3),
     }
     return patient
 
@@ -393,12 +375,12 @@ def main():
     st.markdown("---")
 
     # ── Load models ──────────────────────────────────────────────────────────
-    state_model, risk_models, err = load_models()
+    state_model, risk_models, scaler, err = load_models()
     feature_cols = load_feature_cols()
 
     if err:
         st.error(f"⚠️ Could not load models: {err}")
-        st.info("Make sure you've run Phase 3 (state_estimator.py) and Phase 4 (risk_predictor.py) first.")
+        st.info("Make sure you've run data_pipeline.py, state_estimator.py, and risk_predictor.py first.")
         st.stop()
 
     # ── Patient inputs ───────────────────────────────────────────────────────
@@ -421,12 +403,11 @@ def main():
         if run_btn or True:   # auto-compute on load
             with st.spinner("Computing risk scores..."):
                 try:
-                    scores = get_risk_scores(risk_models, patient, feature_cols)
+                    scores = get_risk_scores(risk_models, patient, feature_cols, scaler=scaler)
                 except Exception as e:
                     st.error(f"Prediction failed: {e}")
                     st.stop()
 
-            # Metric row
             cols = st.columns(len(scores))
             for col, (risk_key, score) in zip(cols, scores.items()):
                 color = risk_color(score)
@@ -444,28 +425,27 @@ def main():
                         </div>
                     </div>""", unsafe_allow_html=True)
 
-            # Average risk summary
-            avg = np.mean(list(scores.values()))
-            severity = "🔴 High concern" if avg >= 70 else ("🟠 Moderate concern" if avg >= 40 else "🟢 Low concern")
+            avg      = np.mean(list(scores.values()))
+            severity = ("🔴 High concern" if avg >= 70
+                        else "🟠 Moderate concern" if avg >= 40 else "🟢 Low concern")
             st.markdown(f"""
             <div class="info-box">
                 <strong>Overall average risk: {avg:.1f}%</strong> — {severity}<br>
                 Based on {len(scores)} risk categories assessed by the trained model.
             </div>""", unsafe_allow_html=True)
 
-            # Patient summary table
             st.markdown('<div class="section-header">Patient summary</div>', unsafe_allow_html=True)
             summary = {
-                "Age": f"{patient['Age (yrs)']:.0f} yrs",
-                "BMI": f"{patient['BMI']:.1f}",
-                "Weight": f"{patient['Weight (Kg)']:.0f} kg",
-                "Cycle": "Irregular" if patient["Cycle(R/I)"] == 2 else "Regular",
-                "AMH": f"{patient['AMH(ng/mL)']:.1f} ng/mL",
-                "RBS": f"{patient['RBS(mg/dl)']:.0f} mg/dl",
-                "BP": f"{patient['BP _Systolic (mmHg)']:.0f}/{patient['BP _Diastolic (mmHg)']:.0f}",
-                "Follicles L/R": f"{patient['Follicle No. (L)']:.0f}/{patient['Follicle No. (R)']:.0f}",
-                "Exercise": "Yes" if patient["Reg.Exercise(Y/N)"] else "No",
-                "Fast food": "Yes" if patient["Fast food (Y/N)"] else "No",
+                "Age":          f"{patient['Age (yrs)']:.0f} yrs",
+                "BMI":          f"{patient['BMI']:.1f}",
+                "Weight":       f"{patient['Weight (Kg)']:.0f} kg",
+                "Cycle":        "Irregular" if patient["Cycle(R/I)"] == 2 else "Regular",
+                "AMH":          f"{patient['AMH(ng/mL)']:.1f} ng/mL",
+                "RBS":          f"{patient['RBS(mg/dl)']:.0f} mg/dl",
+                "BP":           f"{patient['BP _Systolic (mmHg)']:.0f}/{patient['BP _Diastolic (mmHg)']:.0f}",
+                "Follicles L/R":f"{patient['Follicle No. (L)']:.0f}/{patient['Follicle No. (R)']:.0f}",
+                "Exercise":     "Yes" if patient["Reg.Exercise(Y/N)"] else "No",
+                "Fast food":    "Yes" if patient["Fast food (Y/N)"] else "No",
             }
             df_summary = pd.DataFrame(summary.items(), columns=["Parameter", "Value"])
             st.dataframe(df_summary, use_container_width=True, hide_index=True)
@@ -487,17 +467,16 @@ def main():
             st.info("Select at least one scenario above.")
         else:
             with st.spinner("Running simulations..."):
-                baseline = get_risk_scores(risk_models, patient, feature_cols)
+                baseline    = get_risk_scores(risk_models, patient, feature_cols, scaler=scaler)
                 all_results = {"Baseline": baseline}
                 for sc in selected:
                     mod = apply_scenario(patient, sc)
-                    all_results[sc] = get_risk_scores(risk_models, mod, feature_cols)
+                    all_results[sc] = get_risk_scores(risk_models, mod, feature_cols, scaler=scaler)
 
             st.markdown('<div class="section-header">Risk comparison chart</div>',
                         unsafe_allow_html=True)
             st.pyplot(make_risk_chart(all_results), use_container_width=True)
 
-            # Delta table
             st.markdown('<div class="section-header">Score changes vs baseline</div>',
                         unsafe_allow_html=True)
             risks = list(baseline.keys())
@@ -507,12 +486,11 @@ def main():
                 for r in risks:
                     delta = all_results[sc][r] - baseline[r]
                     row[fmt_risk(r)] = f"{delta:+.1f}%"
-                row["Avg Δ"] = f"{np.mean([all_results[sc][r]-baseline[r] for r in risks]):+.1f}%"
+                row["Avg Δ"] = f"{np.mean([all_results[sc][r] - baseline[r] for r in risks]):+.1f}%"
                 rows.append(row)
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-            # Best scenario highlight
-            best_sc = min(selected, key=lambda s: np.mean(list(all_results[s].values())))
+            best_sc  = min(selected, key=lambda s: np.mean(list(all_results[s].values())))
             best_avg = np.mean(list(all_results[best_sc].values()))
             base_avg = np.mean(list(baseline.values()))
             st.markdown(f"""
@@ -535,15 +513,14 @@ def main():
 
         with st.spinner("Estimating trajectory..."):
             months_list, traj_scores = estimate_trajectory(
-                state_model, patient, feature_cols, months=horizon
+                state_model, patient, feature_cols, scaler=scaler, months=horizon
             )
 
         st.pyplot(make_trajectory_chart(months_list, traj_scores), use_container_width=True)
 
-        # Month-by-month table (every 3 months)
         st.markdown('<div class="section-header">Score at key months</div>',
                     unsafe_allow_html=True)
-        checkpoints = [(m, traj_scores[m]) for m in range(0, horizon+1, 3)]
+        checkpoints = [(m, traj_scores[m]) for m in range(0, horizon + 1, 3)]
         df_traj = pd.DataFrame(checkpoints, columns=["Month", "Health Score (%)"])
         df_traj["Status"] = df_traj["Health Score (%)"].apply(
             lambda s: "🟢 Good" if s >= 70 else ("🟠 Moderate" if s >= 40 else "🔴 High risk"))
@@ -557,23 +534,23 @@ def main():
         st.markdown('<div class="section-header">Personalised recommendations</div>',
                     unsafe_allow_html=True)
 
-        baseline = get_risk_scores(risk_models, patient, feature_cols)
+        baseline = get_risk_scores(risk_models, patient, feature_cols, scaler=scaler)
 
-        # Run all scenarios for recommendation logic
         all_sc_results = {}
         for sc in SCENARIOS:
             mod = apply_scenario(patient, sc)
-            all_sc_results[sc] = get_risk_scores(risk_models, mod, feature_cols)
+            all_sc_results[sc] = get_risk_scores(risk_models, mod, feature_cols, scaler=scaler)
 
         for risk_key, base_score in baseline.items():
-            label = fmt_risk(risk_key)
-            color = risk_color(base_score)
-            lvl   = risk_label(base_score)
-            best  = min(all_sc_results, key=lambda s: all_sc_results[s][risk_key])
+            label      = fmt_risk(risk_key)
+            color      = risk_color(base_score)
+            lvl        = risk_label(base_score)
+            best       = min(all_sc_results, key=lambda s: all_sc_results[s][risk_key])
             best_score = all_sc_results[best][risk_key]
             reduction  = base_score - best_score
 
-            with st.expander(f"{label} Risk — {base_score:.1f}% ({lvl})", expanded=(base_score >= 60)):
+            with st.expander(f"{label} Risk — {base_score:.1f}% ({lvl})",
+                             expanded=(base_score >= 60)):
                 c1, c2 = st.columns([1, 2])
                 with c1:
                     st.markdown(f"""
@@ -587,13 +564,15 @@ def main():
                     else:
                         st.success("This risk factor is already well managed.")
                     st.markdown("**All scenarios ranked:**")
-                    for sc, res in sorted(all_sc_results.items(), key=lambda kv: kv[1][risk_key]):
-                        d = base_score - res[risk_key]
-                        tag = f"↓{d:.1f}%" if d > 0 else (f"↑{abs(d):.1f}%" if d < 0 else "—")
+                    for sc, res in sorted(all_sc_results.items(),
+                                          key=lambda kv: kv[1][risk_key]):
+                        d     = base_score - res[risk_key]
+                        tag   = f"↓{d:.1f}%" if d > 0 else (f"↑{abs(d):.1f}%" if d < 0 else "—")
                         color2 = "#2ecc71" if d > 0 else ("#e74c3c" if d < 0 else "#888")
                         st.markdown(
                             f'<div class="scenario-row"><span>{sc}</span>'
-                            f'<span style="color:{color2};font-weight:600">{res[risk_key]:.1f}%  {tag}</span></div>',
+                            f'<span style="color:{color2};font-weight:600">'
+                            f'{res[risk_key]:.1f}%  {tag}</span></div>',
                             unsafe_allow_html=True)
 
         st.markdown("---")

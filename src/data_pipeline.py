@@ -126,6 +126,16 @@ def prepare_for_modeling(df):
         columns=X.columns
     )
 
+
+    import joblib
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    scaler_path = os.path.normpath(os.path.join(script_dir, '../models/scaler.pkl'))
+    os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
+    joblib.dump(scaler, scaler_path)
+    print(f"✅ Scaler saved to {scaler_path}")
+
+
+
     # 4d. Train/Test Split (80/20, stratified)
     X_train, X_test, y_train, y_test = train_test_split(
         X_scaled, y,
