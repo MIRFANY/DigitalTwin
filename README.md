@@ -224,14 +224,6 @@ This system is designed for **educational and research purposes**. It should not
 
 Academic Project - PCOS Digital Twin Implementation
 
-## 📝 Notes for Professor
 
-- All source code is modular and well-documented
-- Models are pre-trained and ready to use
-- Dashboard provides interactive demonstration of the system
-- Data pipeline can be extended with additional datasets
-- Fully reproducible: run `streamlit run src/dashboard.py` to see live demo
-
----
 
 **Last Updated**: May 2026
